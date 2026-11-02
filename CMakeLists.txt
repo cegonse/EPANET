@@ -13,7 +13,8 @@
 #   BUILD_TESTS = ON/OFF
 #   BUILD_PY_LIB = ON/OFF
 #   SANITIZERS_ENABLED = ON/OFF
-#    Enables Undefined Behaviour Sanitizer for tests (if supported by toolchain)
+#    Builds the library, executables and tests with UndefinedBehaviorSanitizer
+#    (GCC/Clang only). Any finding aborts the program, so it fails the test.
 #
 # Generic Invocation:
 #   cmake -E make_directory buildprod
@@ -38,6 +39,36 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 option(BUILD_TESTS "Build tests (requires Boost)" OFF)
 #option(BUILD_PY_LIB "Build library for Python wrapper" OFF)
 option(BUILD_COVERAGE "Build library for coverage" OFF)
+option(SANITIZERS_ENABLED "Build with UndefinedBehaviorSanitizer (GCC/Clang only)" OFF)
+
+# Sanitizer flags are set here, before any target is defined, so that they
+# apply to the library, the executables and the tests alike.
+IF (SANITIZERS_ENABLED)
+    include(CheckCSourceCompiles)
+    set(SANITIZER_FLAGS "-fsanitize=undefined -fno-sanitize-recover=all")
+    # GCC's "undefined" group leaves float-to-int overflow out; Clang includes it.
+    IF (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        set(SANITIZER_FLAGS "${SANITIZER_FLAGS} -fsanitize=float-cast-overflow")
+    ENDIF (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    # CMAKE_REQUIRED_FLAGS is used for both compiling and linking the probe.
+    set(CMAKE_REQUIRED_FLAGS "${SANITIZER_FLAGS}")
+    check_c_source_compiles("int main(void) { return 0; }" SANITIZERS_SUPPORTED)
+    unset(CMAKE_REQUIRED_FLAGS)
+    IF (SANITIZERS_SUPPORTED)
+        # add_compile_options() applies to every language and is not clobbered
+        # by the set(CMAKE_CXX_FLAGS ...) calls in the test subdirectories.
+        # The linker flag variables are used instead of add_link_options() to
+        # stay within the declared cmake_minimum_required version.
+        separate_arguments(SANITIZER_COMPILE_OPTIONS UNIX_COMMAND "-g ${SANITIZER_FLAGS}")
+        add_compile_options(${SANITIZER_COMPILE_OPTIONS})
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${SANITIZER_FLAGS}")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${SANITIZER_FLAGS}")
+        set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${SANITIZER_FLAGS}")
+    ELSE (SANITIZERS_SUPPORTED)
+        message(WARNING "SANITIZERS_ENABLED is ON but the toolchain does not support "
+                        "'${SANITIZER_FLAGS}'. Building without sanitizers.")
+    ENDIF (SANITIZERS_SUPPORTED)
+ENDIF (SANITIZERS_ENABLED)
 
 #IF (NOT BUILD_PY_LIB)
   add_subdirectory(run)
