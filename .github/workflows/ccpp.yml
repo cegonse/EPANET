@@ -58,3 +58,39 @@ jobs:
         with:
           name: libepanet-output
           path: buildproducts/
+
+  test-undefined-behavior:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Boost
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-test-dev libboost-system-dev \
+            libboost-thread-dev libboost-filesystem-dev
+
+      - name: CMake
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -S . -B buildtests -DBUILD_TESTS=ON -DSANITIZERS_ENABLED=ON
+
+      - name: Build
+        run: cmake --build buildtests -j 4
+
+      - name: Test
+        working-directory: ./buildtests
+        run: ctest --output-on-failure
